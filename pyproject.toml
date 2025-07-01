@@ -16,8 +16,7 @@ classifiers = [
 dependencies = [
     "nicegui==2.19.0",
     "pyusb==1.2.1",
-    "opencv-python==4.11.0.86"
 ]
 
 [project.scripts]
-hansim = "water-ui.water_ui:app"
+water-ui = "water_ui.water_ui:run_ui"
