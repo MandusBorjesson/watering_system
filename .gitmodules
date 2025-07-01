@@ -1,0 +1,3 @@
+[submodule "BirdsNest"]
+	path = BirdsNest
+	url = git@github.com:MandusBorjesson/BirdsNest.git

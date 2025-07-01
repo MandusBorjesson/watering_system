@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "watering-system"
+version = "0.1.0"
+description = "Web UI for a plant watering system"
+readme = "README.md"
+requires-python = ">=3.9"
+keywords = []
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "nicegui==2.19.0",
+    "pyusb==1.2.1",
+    "opencv-python==4.11.0.86"
+]
+
+[project.scripts]
+hansim = "water-ui.water_ui:app"
