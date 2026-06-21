@@ -11,13 +11,17 @@ from .cp210x import cp2104
 
 water_systems = ["Chili/Tomatoes", "Tomato (large)", "Cucumber (large)"]
 
+import sys
+
+logfile_path = sys.argv[1]
+
 def run_water():
     global water_queue, water_systems, system_selector, time_selector
     water_queue.put((water_systems.index(system_selector.value), time_selector.value))
 
     now = datetime.datetime.now()
     t = now.strftime('%Y-%m-%dT%H:%M:%S')
-    with open("water_log.csv", "a") as log:
+    with open(logfile_path, "a") as log:
         log.write(f"{t}, {system_selector.value}, {time_selector.value}\n")
 
 dark = ui.dark_mode()
