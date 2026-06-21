@@ -1,0 +1,71 @@
+{
+    "default_duration_s": 5,
+    "pots": [
+        {
+            "id": "f2a1054c-4360-4353-a3f6-b08c8e747ccc",
+            "content": ["Chili"],
+            "offset_cm": 2,
+            "water_hours": [6]
+        },
+        {
+            "id": "a2258b1e-f19d-4568-be63-9f7a4d6cc779",
+            "content": ["Cucumber", "Chili"],
+            "offset_cm": 21,
+            "water_hours": [6]
+        },
+        {
+            "id": "1b2a4e65-fbca-4296-b103-8023b63915d3",
+            "content": ["Cucumber", "Chili"],
+            "offset_cm": 37,
+            "water_hours": [6]
+        },
+        {
+            "id": "21d245fb-062a-411a-aa5b-3c1dbb42c338",
+            "content": ["Tomato", "Chili"],
+            "offset_cm": 52,
+            "water_hours": [6]
+        },
+        {
+            "id": "6e5c0a60-804b-43e1-9c9f-6942b4ea3c05",
+            "content": ["Tomato"],
+            "offset_cm": 70,
+            "water_hours": [6]
+        },
+        {
+            "id": "0a33874c-161a-41a7-9415-4e305db2474b",
+            "content": ["Tomato", "Chili"],
+            "offset_cm": 94,
+            "water_hours": [6]
+        },
+        {
+            "id": "2f5ec7e2-6402-4b42-b2b4-8efcf7fbe623",
+            "content": ["Cucumber", "Chili"],
+            "offset_cm": 109,
+            "water_hours": [6]
+        },
+        {
+            "id": "7cb8dd32-d479-412e-836c-ba2ae47dedf9",
+            "content": ["Tomato"],
+            "offset_cm": 129,
+            "water_hours": [6]
+        },
+        {
+            "id": "7fef55fc-b055-46d4-bcf5-e79d5bf480a0",
+            "content": ["Tomatillo", "Chili"],
+            "offset_cm": 149,
+            "water_hours": [6]
+        },
+        {
+            "id": "bcfa1fd7-a0b8-4d8a-b6e7-a40ed3f56c51",
+            "content": ["Tomato"],
+            "offset_cm": 165,
+            "water_hours": [6]
+        },
+        {
+            "id": "3c7dcac9-7ed0-466b-afee-3504fbcf3fb6",
+            "content": ["Tomato"],
+            "offset_cm": 185,
+            "water_hours": [6]
+        }
+    ]
+}

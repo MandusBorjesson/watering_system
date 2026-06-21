@@ -15,8 +15,14 @@ classifiers = [
 ]
 dependencies = [
     "nicegui==2.19.0",
+    "opencv-python-headless>=4.8.0",
     "pyusb==1.2.1",
+    "gpiozero==2.0.1",
 ]
 
 [project.scripts]
 water-ui = "water_ui.water_ui:run_ui"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["water_ui*"]
