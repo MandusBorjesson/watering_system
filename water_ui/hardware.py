@@ -7,8 +7,27 @@ logger = logging.getLogger(__name__)
 
 PIPE_FILL_S = 2
 RELAY_CHANNEL = 3
-STEPPER_PINS = (19, 12, 13, 14)
+STEPPER_PINS = (19, 12, 13, 17)
 TRACK_SIZE_MM = 1900
+HOME_POSITION_TOLERANCE_MM = 20
+MM_PER_STEP = 80 / 400
+
+
+def _check_home_move(expected_position: float | None, actual_mm: float) -> str | None:
+    if expected_position is None:
+        return None
+
+    expected_move_mm = -expected_position
+    if abs(actual_mm - expected_move_mm) <= HOME_POSITION_TOLERANCE_MM:
+        return None
+
+    message = (
+        f"Homing position mismatch: moved {actual_mm:.1f} mm toward home, "
+        f"expected ~{expected_move_mm:.1f} mm "
+        f"(last known position {expected_position:.1f} mm)"
+    )
+    logger.error(message)
+    return message
 
 
 class StubStepper:
@@ -21,23 +40,36 @@ class StubStepper:
     def __exit__(self, exc_type, exc_value, traceback):
         return False
 
-    def home(self) -> None:
-        self.move_relative(-TRACK_SIZE_MM)
+    def home(self) -> str | None:
+        expected_position = self._position_mm
+        actual_mm = self.move_relative(-TRACK_SIZE_MM)
+        return _check_home_move(expected_position, actual_mm)
 
-    def move_relative(self, distance_mm: float) -> None:
-        if self._position_mm is not None:
-            new_position = self._position_mm + distance_mm
-        else:
-            new_position = 0.0 if distance_mm < 0 else None
-
+    def move_relative(self, distance_mm: float) -> float:
+        known = self._position_mm
         steps = int(abs(distance_mm) * 400 / 80)
-        time.sleep(min(steps * 0.0008, 0.5))
+        sign = -1 if distance_mm < 0 else 1
 
-        if distance_mm < 0:
+        if distance_mm < 0 and known is not None:
+            steps_taken = min(steps, int(abs(known) * 400 / 80))
             new_position = 0.0
+        elif distance_mm < 0:
+            steps_taken = steps
+            new_position = 0.0
+        elif known is not None:
+            steps_taken = steps
+            new_position = known + sign * steps_taken * MM_PER_STEP
+        else:
+            steps_taken = steps
+            new_position = sign * steps_taken * MM_PER_STEP if steps_taken > 0 else None
 
+        actual_mm = sign * steps_taken * MM_PER_STEP
+        time.sleep(min(steps_taken * 0.0008, 0.5))
         self._position_mm = new_position
-        logger.info("StubStepper moved %.1f mm to position %s", distance_mm, self._position_mm)
+        logger.info(
+            "StubStepper moved %.1f mm to position %s", actual_mm, self._position_mm
+        )
+        return actual_mm
 
     def move_absolute(self, target_mm: float) -> None:
         if self._position_mm is None:
@@ -97,10 +129,12 @@ class Stepper:
         self.enable.off()
         return False
 
-    def home(self) -> None:
-        self.move_relative(-self._size_mm)
+    def home(self) -> str | None:
+        expected_position = self._position_mm
+        actual_mm = self.move_relative(-self._size_mm)
+        return _check_home_move(expected_position, actual_mm)
 
-    def move_relative(self, distance_mm: float) -> None:
+    def move_relative(self, distance_mm: float) -> float:
         if self._position_mm is not None:
             new_position = self._position_mm + distance_mm
         else:
@@ -109,6 +143,8 @@ class Stepper:
         self._position_mm = None
 
         steps = int(distance_mm * 400 / 80)
+        sign = 1 if steps >= 0 else -1
+        steps_taken = 0
 
         self.enable.on()
         if steps > 0:
@@ -125,9 +161,11 @@ class Stepper:
             time.sleep(self._step_duration)
             self.step.off()
             time.sleep(self._step_duration)
+            steps_taken += 1
 
         self.enable.off()
         self._position_mm = new_position
+        return sign * steps_taken * MM_PER_STEP
 
     def move_absolute(self, target_mm: float) -> None:
         if self._position_mm is None:

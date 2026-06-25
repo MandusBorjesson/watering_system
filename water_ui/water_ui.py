@@ -16,7 +16,7 @@ from typing import Callable
 from nicegui import app, ui
 
 from .camera import STOP_CAPTURE, Webcam
-from .config import Config, load_config, pot_label, pot_offset_mm
+from .config import Config, Pot, load_config, pot_label, pot_offset_mm
 from .hardware import create_hardware
 from .history import HistoryStore, WateringEvent
 
@@ -30,10 +30,16 @@ class WaterJob:
 
 
 @dataclass(frozen=True)
+class HomeJob:
+    source: str
+
+
+@dataclass(frozen=True)
 class StatusMessage:
     kind: str
     text: str
     pot_id: str = ""
+    is_home: bool = False
 
 
 class AppState:
@@ -48,9 +54,10 @@ class AppState:
         self.history = history
         self.work_queue = work_queue
         self.status_queue = status_queue
-        self.watered_slots: set[tuple[str, date, int]] = set()
+        self.watered_slots: set[tuple[str, date]] = set()
         self.selected_pot_id: str | None = config.pots[0].id if config.pots else None
         self.pending_pot_ids: set[str] = set()
+        self.pending_home = False
         self.refresh_handlers: list[Callable[[], None]] = []
 
     def register_refresh(self, handler: Callable[[], None]) -> None:
@@ -76,6 +83,11 @@ class AppState:
         )
 
 
+    def enqueue_home(self, source: str = "manual") -> None:
+        self.pending_home = True
+        self.work_queue.put(HomeJob(source=source))
+
+
 def water_worker(
     work_queue: queue.Queue,
     status_queue: queue.Queue,
@@ -89,6 +101,32 @@ def water_worker(
             job = work_queue.get()
             if job is STOP_CAPTURE:
                 break
+            if isinstance(job, HomeJob):
+                try:
+                    mismatch = stepper.home()
+                except Exception as exc:
+                    message = f"Failed to home motion system: {exc}"
+                    history.append_error(message, source=job.source)
+                    status_queue.put(
+                        StatusMessage(kind="error", text=message, is_home=True)
+                    )
+                    continue
+
+                if mismatch:
+                    history.append_error(mismatch, source=job.source)
+                    status_queue.put(
+                        StatusMessage(kind="error", text=mismatch, is_home=True)
+                    )
+                elif job.source == "manual":
+                    status_queue.put(
+                        StatusMessage(
+                            kind="success",
+                            text="Homed motion system",
+                            is_home=True,
+                        )
+                    )
+                continue
+
             try:
                 stepper.move_absolute(job.offset_mm)
                 pump.run(job.duration_s)
@@ -118,8 +156,19 @@ def water_worker(
             )
 
 
-def format_water_hours(water_hours: list[int]) -> str:
-    return ", ".join(f"{hour:02d}:00" for hour in water_hours)
+DAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def format_water_schedule(water_hour: int, water_schedule: list[int]) -> str:
+    time_text = f"{water_hour:02d}:00 daily"
+    day_parts = [
+        f"{DAY_NAMES[index]} {seconds}s"
+        for index, seconds in enumerate(water_schedule)
+        if seconds > 0
+    ]
+    if not day_parts:
+        return f"{time_text} (skip all days)"
+    return f"{time_text} · {', '.join(day_parts)}"
 
 
 def watering_row(event: WateringEvent, config: Config) -> dict:
@@ -156,6 +205,7 @@ def build_ui(state: AppState, stub: bool, camera: Webcam | None = None) -> None:
     history_filter = {"pot_id": None}
     duration_input: dict[str, ui.number] = {}
     water_button: dict[str, ui.button] = {}
+    home_button: dict[str, ui.button] = {}
 
     def set_selected_pot(pot_id: str) -> None:
         state.selected_pot_id = pot_id
@@ -178,7 +228,7 @@ def build_ui(state: AppState, stub: bool, camera: Webcam | None = None) -> None:
                 ):
                     ui.label(pot_label(pot)).classes("text-subtitle2 leading-tight")
                     ui.label(
-                        f"{format_water_hours(pot.water_hours)} · "
+                        f"{format_water_schedule(state.config.water_hour, pot.water_schedule)} · "
                         f"Last: {last_watered_text(pot.id)}"
                     ).classes("text-caption text-grey leading-tight")
                     if pot.id in state.pending_pot_ids:
@@ -195,14 +245,23 @@ def build_ui(state: AppState, stub: bool, camera: Webcam | None = None) -> None:
 
         detail_labels["plants"].set_text(pot_label(pot))
         detail_labels["offset"].set_text(f"Offset: {pot.offset_cm} cm")
-        detail_labels["schedule"].set_text(f"Schedule: {format_water_hours(pot.water_hours)}")
+        detail_labels["schedule"].set_text(
+            f"Schedule: {format_water_schedule(state.config.water_hour, pot.water_schedule)}"
+        )
         detail_labels["last"].set_text(f"Last watered: {last_watered_text(pot_id)}")
         detail_labels["count"].set_text(f"Total waterings: {watering_count(pot_id)}")
 
-        pending = pot_id in state.pending_pot_ids
+        pending = pot_id in state.pending_pot_ids or state.pending_home
         water_button["widget"].set_enabled(not pending)
         water_button["widget"].set_text(
-            "Watering..." if pending else "Water now"
+            "Watering..." if pot_id in state.pending_pot_ids else "Water now"
+        )
+
+    def refresh_motion_controls() -> None:
+        motion_busy = state.pending_home or bool(state.pending_pot_ids)
+        home_button["widget"].set_enabled(not motion_busy)
+        home_button["widget"].set_text(
+            "Homing..." if state.pending_home else "Home"
         )
 
     def refresh_history() -> None:
@@ -218,14 +277,23 @@ def build_ui(state: AppState, stub: bool, camera: Webcam | None = None) -> None:
     def refresh_all() -> None:
         refresh_overview()
         refresh_detail()
+        refresh_motion_controls()
         refresh_history()
+
+    def start_homing() -> None:
+        if state.pending_home or state.pending_pot_ids:
+            return
+
+        state.enqueue_home()
+        refresh_motion_controls()
+        refresh_detail()
 
     def start_watering() -> None:
         pot_id = state.selected_pot_id
         if pot_id is None:
             ui.notify("Select a pot first", type="warning")
             return
-        if pot_id in state.pending_pot_ids:
+        if pot_id in state.pending_pot_ids or state.pending_home:
             return
 
         duration_s = float(duration_input["widget"].value)
@@ -235,6 +303,7 @@ def build_ui(state: AppState, stub: bool, camera: Webcam | None = None) -> None:
 
         state.enqueue_job(pot_id, duration_s, source="manual")
         refresh_detail()
+        refresh_motion_controls()
 
     filter_options = {"": "All pots", **pot_options}
 
@@ -278,6 +347,9 @@ def build_ui(state: AppState, stub: bool, camera: Webcam | None = None) -> None:
                             water_button["widget"] = ui.button(
                                 "Water now", on_click=start_watering
                             )
+                            home_button["widget"] = ui.button(
+                                "Home", on_click=start_homing
+                            ).props("outline")
 
                     with ui.column().classes("w-full q-gutter-y-sm"):
                         ui.label("Watering history").classes("text-h6")
@@ -334,6 +406,8 @@ def build_ui(state: AppState, stub: bool, camera: Webcam | None = None) -> None:
 
             if message.pot_id:
                 state.pending_pot_ids.discard(message.pot_id)
+            if message.is_home:
+                state.pending_home = False
 
             notify_type = "positive" if message.kind == "success" else "warning"
             ui.notify(message.text, type=notify_type)
@@ -346,22 +420,25 @@ def build_ui(state: AppState, stub: bool, camera: Webcam | None = None) -> None:
         minute_key = (now.date(), now.hour, now.minute)
         last_checked_minute = scheduler_state["last_checked_minute"]
 
-        if now.minute == 0:
-            scheduled_any = False
+        if now.minute == 0 and now.hour == state.config.water_hour:
+            weekday = now.weekday()
+            pots_to_water: list[tuple[Pot, int]] = []
             for pot in state.config.pots:
-                if now.hour not in pot.water_hours:
+                duration_s = pot.water_schedule[weekday]
+                if duration_s <= 0:
                     continue
 
-                slot = (pot.id, now.date(), now.hour)
+                slot = (pot.id, now.date())
                 if slot in state.watered_slots:
                     continue
 
-                duration_s = state.config.duration_for_pot(pot)
-                state.enqueue_job(pot.id, duration_s, source="scheduled")
-                state.watered_slots.add(slot)
-                scheduled_any = True
+                pots_to_water.append((pot, duration_s))
 
-            if scheduled_any:
+            if pots_to_water:
+                state.enqueue_home(source="scheduled")
+                for pot, duration_s in pots_to_water:
+                    state.enqueue_job(pot.id, float(duration_s), source="scheduled")
+                    state.watered_slots.add((pot.id, now.date()))
                 state.refresh()
 
         if last_checked_minute and now.date() > last_checked_minute[0]:
