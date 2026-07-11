@@ -117,11 +117,15 @@ def water_worker(
                     status_queue.put(
                         StatusMessage(kind="error", text=mismatch, is_home=True)
                     )
-                elif job.source == "manual":
+                else:
                     status_queue.put(
                         StatusMessage(
                             kind="success",
-                            text="Homed motion system",
+                            text=(
+                                "Homed motion system"
+                                if job.source == "manual"
+                                else ""
+                            ),
                             is_home=True,
                         )
                     )
@@ -409,8 +413,9 @@ def build_ui(state: AppState, stub: bool, camera: Webcam | None = None) -> None:
             if message.is_home:
                 state.pending_home = False
 
-            notify_type = "positive" if message.kind == "success" else "warning"
-            ui.notify(message.text, type=notify_type)
+            if message.text:
+                notify_type = "positive" if message.kind == "success" else "warning"
+                ui.notify(message.text, type=notify_type)
             state.refresh()
 
     scheduler_state = {"last_checked_minute": None}

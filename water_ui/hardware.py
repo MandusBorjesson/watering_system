@@ -42,7 +42,7 @@ class StubStepper:
 
     def home(self) -> str | None:
         expected_position = self._position_mm
-        actual_mm = self.move_relative(-TRACK_SIZE_MM)
+        actual_mm = self.move_relative(-TRACK_SIZE_MM*1.3)  # Move a bit more than track size to account for skipping steps
         return _check_home_move(expected_position, actual_mm)
 
     def move_relative(self, distance_mm: float) -> float:
